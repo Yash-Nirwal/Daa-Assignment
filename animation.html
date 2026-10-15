@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interval Partitioning, step by step</title>
+<style>
+  :root{
+    --bg:#e9edf3; --panel:#ffffff; --ink:#18212f; --muted:#5b6678; --line:#cdd5e0;
+    --sweep:#d6336c; --free:#2f9e44; --navy:#1f3864;
+    --font: "Avenir Next","Segoe UI",Roboto,system-ui,-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--font);line-height:1.45}
+  header{max-width:1240px;margin:0 auto;padding:22px 20px 10px}
+  h1{margin:0;font-size:1.6rem;letter-spacing:-.01em;color:var(--navy)}
+  header p{margin:4px 0 0;color:var(--muted);max-width:75ch}
+  .app{max-width:1240px;margin:0 auto;padding:10px 20px 32px;display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:16px;align-items:start}
+  @media (max-width:980px){.app{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px}
+  .stage{padding:12px 14px 14px}
+  .stage-head{display:flex;flex-wrap:wrap;gap:6px 22px;align-items:baseline;padding:0 2px 6px;font-size:.92rem;color:var(--muted);font-variant-numeric:tabular-nums}
+  .stage-head b{color:var(--ink);font-size:1.05rem}
+  svg{width:100%;height:auto;display:block}
+  svg text{font-family:var(--font)}
+  .narration{margin-top:10px;border-left:5px solid var(--navy);background:#f3f6fb;border-radius:0 8px 8px 0;padding:10px 14px;min-height:5.4em;font-size:1.02rem}
+  .narration .badge{display:inline-block;font-size:.8rem;font-weight:700;padding:1px 9px;border-radius:99px;background:var(--navy);color:#fff;margin-right:8px;vertical-align:1px}
+  .narration .badge.examine{background:#b45309}
+  .narration .badge.assign{background:#2b6cb0}
+  .narration .badge.done{background:var(--free)}
+  .narration code{background:#e4eaf3;padding:0 5px;border-radius:4px;font-size:.95em}
+  .side{display:flex;flex-direction:column;gap:12px}
+  .box{padding:12px 14px}
+  .box h2{margin:0 0 8px;font-size:.98rem;color:var(--navy)}
+  .row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  button{font:inherit;font-size:.92rem;padding:6px 11px;border:1px solid #9fb0c8;background:#fff;border-radius:7px;cursor:pointer;color:var(--ink)}
+  button:hover{background:#eef3fa}
+  button.primary{background:var(--navy);color:#fff;border-color:var(--navy)}
+  button.primary:hover{background:#2a4a82}
+  button:disabled{opacity:.45;cursor:default}
+  :focus-visible{outline:3px solid #f59f00;outline-offset:2px}
+  input[type=range]{width:100%;accent-color:var(--navy)}
+  label{font-size:.88rem;color:var(--muted)}
+  textarea{width:100%;height:150px;font:.9rem ui-monospace,Menlo,Consolas,monospace;padding:8px;border:1px solid #9fb0c8;border-radius:7px;resize:vertical}
+  input[type=number]{width:64px;font:inherit;padding:4px 6px;border:1px solid #9fb0c8;border-radius:6px}
+  .err{color:#b42318;font-size:.88rem;min-height:1.2em;margin-top:6px}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center}
+  .stat{background:#f3f6fb;border-radius:8px;padding:6px 2px}
+  .stat b{display:block;font-size:1.45rem;line-height:1.1;font-variant-numeric:tabular-nums}
+  .stat span{font-size:.76rem;color:var(--muted)}
+  .chips{display:flex;flex-wrap:wrap;gap:5px}
+  .chip{font-size:.82rem;padding:2px 8px;border-radius:99px;border:1px solid var(--line);background:#fff;font-variant-numeric:tabular-nums;display:inline-flex;align-items:center;gap:5px}
+  .chip i{width:9px;height:9px;border-radius:50%;background:#cbd3df;display:inline-block}
+  .chip.done{color:var(--muted);background:#f3f5f8}
+  .chip.cur{border:2px solid var(--sweep);font-weight:700}
+  .chip.min{border:2px solid var(--free);font-weight:700}
+  .hint{font-size:.8rem;color:var(--muted);margin:6px 0 0}
+  @media (prefers-reduced-motion:no-preference){
+    .enter{transform-box:fill-box;transform-origin:left center;animation:grow .45s ease-out}
+    @keyframes grow{from{transform:scaleX(0);opacity:.2}to{transform:scaleX(1);opacity:1}}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Interval Partitioning Problem</h1>
+  <p>Give every lecture a room so that no two lectures in the same room overlap, using as few rooms as possible.
+     The greedy algorithm handles lectures in order of start time and keeps a priority queue of when each room becomes free.</p>
+</header>
+
+<main class="app">
+  <section class="panel stage" id="stage" aria-label="Animation stage">
+    <div class="stage-head">
+      <span>Step <b id="stepNo">0</b> of <b id="stepMax">0</b></span>
+      <span>Rooms open: <b id="hRooms">0</b></span>
+      <span>Overlap at sweep line: <b id="hOverlap">-</b></span>
+    </div>
+    <svg id="svg" role="img" aria-label="Timeline of lectures assigned to rooms"></svg>
+    <div class="narration" id="narration" aria-live="polite"></div>
+  </section>
+
+  <aside class="side">
+    <div class="panel box">
+      <h2>Controls</h2>
+      <div class="row">
+        <button id="bReset" title="Back to the start">Reset</button>
+        <button id="bBack" title="Left arrow">Back</button>
+        <button id="bPlay" class="primary" title="Space">Play</button>
+        <button id="bNext" title="Right arrow">Step</button>
+      </div>
+      <p style="margin:10px 0 2px"><label for="sSlide">Jump to step</label></p>
+      <input type="range" id="sSlide" min="0" max="0" value="0">
+      <p style="margin:6px 0 2px"><label for="sSpeed">Speed: <span id="speedVal"></span></label></p>
+      <input type="range" id="sSpeed" min="1" max="10" value="5">
+      <p class="hint">Keyboard: left/right arrows step, space plays or pauses.</p>
+    </div>
+
+    <div class="panel box">
+      <h2>Your input (start end, one lecture per line)</h2>
+      <textarea id="txt" spellcheck="false" aria-label="Intervals"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button id="bApply" class="primary">Apply</button>
+        <button id="bExample">Worked example</button>
+        <span style="flex:1"></span>
+        <label for="nRand">n =</label><input type="number" id="nRand" min="2" max="30" value="12">
+        <button id="bRand">Random</button>
+      </div>
+      <div class="err" id="err" role="alert"></div>
+      <p class="hint">Intervals are half-open, [start, end): a lecture ending at 4 and one starting at 4 can share a room.</p>
+    </div>
+
+    <div class="panel box">
+      <h2>Counters</h2>
+      <div class="stats">
+        <div class="stat"><b id="cRooms">0</b><span>rooms used</span></div>
+        <div class="stat"><b id="cDepth">0</b><span>depth (lower bound)</span></div>
+        <div class="stat"><b id="cDone">0</b><span>lectures placed</span></div>
+      </div>
+    </div>
+
+    <div class="panel box">
+      <h2>Priority queue of (room, free time)</h2>
+      <div class="chips" id="heap"></div>
+      <p class="hint">Smallest free time first. The green chip is the room the algorithm inspects.</p>
+    </div>
+
+    <div class="panel box">
+      <h2>Lectures in start-time order</h2>
+      <div class="chips" id="queue"></div>
+    </div>
+  </aside>
+</main>
+
+<script>
+(function(){
+"use strict";
+const PALETTE=['#0f8b8d','#4f46e5','#d98e04','#3d9a40','#1d8fe1','#8e44ad','#8a5a2b','#64748b'];
+const colour=r=>PALETTE[r%PALETTE.length];
+const $=id=>document.getElementById(id);
+const fmt=n=>String(+Number(n).toFixed(2));
+const EXAMPLE="0 4\n1 3\n2 6\n4 7\n5 8\n6 9\n8 10\n9 11";
+const MAXN=40;
+let model=null, cur=0, timer=null;
+
+/* ---------- parsing ---------- */
+function parseInput(text){
+  const list=[]; let error="";
+  const lines=text.split(/\n/);
+  for(let i=0;i<lines.length;i++){
+    const t=lines[i].replace(/[\[\]\(\)]/g," ").trim();
+    if(!t) continue;
+    const p=t.split(/[\s,;]+/).filter(Boolean).map(Number);
+    if(p.length!==2||p.some(v=>!isFinite(v))){error="Line "+(i+1)+": expected two numbers, e.g. 3 7.";break;}
+    if(!(p[0]<p[1])){error="Line "+(i+1)+": start must be smaller than end.";break;}
+    list.push(p);
+  }
+  if(!error&&list.length===0) error="Enter at least one interval.";
+  if(!error&&list.length>MAXN) error="At most "+MAXN+" intervals, please.";
+  return {list,error};
+}
+
+/* ---------- the algorithm, recorded as a list of snapshots ---------- */
+function build(list){
+  const iv=list.map((x,i)=>({id:i,name:"L"+(i+1),s:x[0],e:x[1]}));
+  const sorted=iv.slice().sort((a,b)=>a.s-b.s||a.id-b.id);
+  // depth by sweeping events (ends before starts at equal times)
+  const ev=[]; iv.forEach(x=>{ev.push([x.s,1]);ev.push([x.e,-1]);});
+  ev.sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
+  let c=0,depth=0,depthAt=ev[0][0];
+  for(const [t,d] of ev){c+=d; if(c>depth){depth=c;depthAt=t;}}
+  const overlapAt=t=>iv.filter(x=>x.s<=t&&t<x.e).length;
+
+  const steps=[], roomFin=[], placed=[];
+  const heapOf=()=>roomFin.map((f,r)=>({room:r,fin:f})).sort((a,b)=>a.fin-b.fin||a.room-b.room);
+  const snap=o=>steps.push(Object.assign({roomFin:roomFin.slice(),placed:placed.slice(),heap:heapOf(),cur:null,sweep:null,target:null,overlap:null,k:-1},o));
+
+  snap({kind:"init",text:"<span class='badge'>Start</span>"+sorted.length+" lectures sorted by start time. We sweep left to right, one lecture at a time. Press <b>Step</b> or <b>Play</b>."});
+  sorted.forEach((x,k)=>{
+    const h=heapOf(), top=h[0];
+    const reuse=!!top&&top.fin<=x.s;
+    const target=reuse?top.room:roomFin.length;
+    const ov=overlapAt(x.s);
+    let t="<span class='badge examine'>Examine</span><b>"+x.name+"</b> ["+fmt(x.s)+", "+fmt(x.e)+") starts at <code>t = "+fmt(x.s)+"</code>. ";
+    if(!top) t+="The queue is empty, so no room exists yet: open <b>Room 1</b>.";
+    else if(reuse) t+="Earliest-free room is <b>Room "+(top.room+1)+"</b>, free at "+fmt(top.fin)+". Since "+fmt(top.fin)+" &le; "+fmt(x.s)+", it is free: <b>reuse it</b>.";
+    else t+="Earliest-free room is <b>Room "+(top.room+1)+"</b>, free at "+fmt(top.fin)+". Since "+fmt(top.fin)+" &gt; "+fmt(x.s)+", every room is busy at this moment ("+ov+" lectures overlap here): <b>open Room "+(target+1)+"</b>.";
+    snap({kind:"examine",k,cur:x,sweep:x.s,target,reuse,overlap:ov,text:t});
+    if(reuse) roomFin[target]=x.e; else roomFin.push(x.e);
+    placed.push({id:x.id,room:target});
+    let a="<span class='badge assign'>Assign</span><b>"+x.name+"</b> goes to <b>Room "+(target+1)+"</b>. ";
+    a+= reuse ? "Pop (Room "+(target+1)+", "+fmt(top.fin)+") and push (Room "+(target+1)+", "+fmt(x.e)+")."
+              : "Push (Room "+(target+1)+", "+fmt(x.e)+"). Rooms in use: "+roomFin.length+".";
+    snap({kind:"assign",k,cur:x,sweep:x.s,target,reuse,overlap:ov,text:a});
+  });
+  snap({kind:"done",k:sorted.length,text:"<span class='badge done'>Done</span>The greedy schedule uses <b>"+roomFin.length+"</b> rooms. The depth (largest number of lectures overlapping at one instant, first reached at t = "+fmt(depthAt)+") is <b>"+depth+"</b>. No schedule can use fewer rooms than the depth, so this one is <b>optimal</b>."});
+  return {iv,sorted,steps,depth,depthAt};
+}
+
+/* ---------- drawing ---------- */
+function niceStep(raw){const p=Math.pow(10,Math.floor(Math.log10(raw)));for(const m of [1,2,5,10]) if(m*p>=raw) return m*p; return 10*p;}
+
+function draw(){
+  const m=model, st=m.steps[cur];
+  const lanes=Math.max(m.depth,st.roomFin.length,1);
+  const W=900,L=118,R=24,top=14,inRow=34,gap=30,laneH=lanes>9?30:44;
+  const y0=top+inRow+gap+16, H=y0+lanes*laneH+34;
+  const tmin=Math.floor(Math.min(...m.iv.map(x=>x.s))), tmax=Math.max(Math.ceil(Math.max(...m.iv.map(x=>x.e))),tmin+1);
+  const X=t=>L+(t-tmin)/(tmax-tmin)*(W-L-R);
+  const step=niceStep((tmax-tmin)/14);
+  let o="<svg viewBox='0 0 "+W+" "+H+"' xmlns='http://www.w3.org/2000/svg' id='svg' role='img' aria-label='Timeline of lectures assigned to rooms'>";
+  for(let r=0;r<lanes;r++){
+    const y=y0+r*laneH, opened=st.roomFin[r]!==undefined;
+    o+="<rect x='"+L+"' y='"+y+"' width='"+(W-L-R)+"' height='"+laneH+"' fill='"+(r%2?"#f6f8fb":"#eef2f7")+"'"+(opened?"":" opacity='.55'")+"/>";
+    if(opened&&st.sweep!==null&&st.roomFin[r]<=st.sweep)
+      o+="<rect x='"+L+"' y='"+y+"' width='"+(W-L-R)+"' height='"+laneH+"' fill='#2f9e44' opacity='.13'/>";
+  }
+  for(let t=Math.ceil(tmin/step)*step;t<=tmax+1e-9;t+=step){
+    const x=X(t);
+    o+="<line x1='"+x+"' x2='"+x+"' y1='"+y0+"' y2='"+(y0+lanes*laneH)+"' stroke='#c3ccd9' stroke-width='1' stroke-dasharray='2 4'/>";
+    o+="<text x='"+x+"' y='"+(y0+lanes*laneH+20)+"' font-size='13' fill='#5b6678' text-anchor='middle'>"+fmt(t)+"</text>";
+  }
+  o+="<text x='"+(W-R)+"' y='"+(y0+lanes*laneH+32)+"' font-size='12' fill='#5b6678' text-anchor='end'>time</text>";
+  for(let r=0;r<lanes;r++){
+    const y=y0+r*laneH, opened=st.roomFin[r]!==undefined;
+    o+="<text x='10' y='"+(y+laneH/2+(laneH>36?-2:4))+"' font-size='14' font-weight='700' fill='"+(opened?colour(r):"#a3adbd")+"'>Room "+(r+1)+"</text>";
+    if(laneH>36){
+      let tag="not opened", fill="#8a94a6";
+      if(opened){
+        if(st.sweep!==null){ if(st.roomFin[r]<=st.sweep){tag="free since "+fmt(st.roomFin[r]);fill="#2f9e44";} else {tag="busy until "+fmt(st.roomFin[r]);fill="#6b7689";} }
+        else {tag="last ends at "+fmt(st.roomFin[r]);fill="#6b7689";}
+      }
+      o+="<text x='10' y='"+(y+laneH/2+14)+"' font-size='11.5' fill='"+fill+"'>"+tag+"</text>";
+    }
+  }
+  if(st.target!==null&&(st.kind==="examine"||st.kind==="assign")){
+    const y=y0+st.target*laneH;
+    o+="<rect x='"+(L-2)+"' y='"+y+"' width='"+(W-L-R+4)+"' height='"+laneH+"' fill='none' stroke='"+colour(st.target)+"' stroke-width='2.5' "+(st.reuse||st.kind==="assign"?"":"stroke-dasharray='7 4'")+" rx='3'/>";
+  }
+  const justPlaced=st.kind==="assign"?st.placed[st.placed.length-1].id:-1;
+  st.placed.forEach(p=>{
+    const x=m.iv[p.id], xs=X(x.s), w=X(x.e)-xs, y=y0+p.room*laneH+5, h=laneH-10;
+    o+="<g"+(p.id===justPlaced?" class='enter'":"")+"><title>"+x.name+" ["+fmt(x.s)+", "+fmt(x.e)+") in Room "+(p.room+1)+"</title>"+
+       "<rect x='"+xs+"' y='"+y+"' width='"+w+"' height='"+h+"' rx='5' fill='"+colour(p.room)+"' stroke='#fff' stroke-width='1.5'/>"+
+       (w>30?"<text x='"+(xs+w/2)+"' y='"+(y+h/2+5)+"' font-size='"+(laneH>36?14:12)+"' font-weight='700' fill='#fff' text-anchor='middle'>"+x.name+"</text>":"")+"</g>";
+  });
+  if(st.kind==="examine"){
+    const x=st.cur, xs=X(x.s), w=X(x.e)-xs, y=y0+st.target*laneH+5, h=laneH-10;
+    o+="<rect x='"+xs+"' y='"+y+"' width='"+w+"' height='"+h+"' rx='5' fill='"+colour(st.target)+"' fill-opacity='.18' stroke='"+colour(st.target)+"' stroke-width='2' stroke-dasharray='5 3'/>";
+  }
+  o+="<text x='10' y='"+(top+inRow/2+5)+"' font-size='13' font-weight='700' fill='#18212f'>Incoming</text>";
+  if(st.kind==="examine"){
+    const x=st.cur, xs=X(x.s), w=X(x.e)-xs;
+    o+="<rect x='"+xs+"' y='"+top+"' width='"+w+"' height='"+inRow+"' rx='6' fill='#18212f'/>"+
+       "<text x='"+(xs+w/2)+"' y='"+(top+inRow/2+5)+"' font-size='14' font-weight='700' fill='#fff' text-anchor='middle'>"+x.name+" ["+fmt(x.s)+", "+fmt(x.e)+")</text>";
+  } else if(st.kind==="init"||st.kind==="done"){
+    o+="<text x='"+(L+4)+"' y='"+(top+inRow/2+5)+"' font-size='13' fill='#6b7689'>"+(st.kind==="init"?"nothing processed yet":"all lectures placed")+"</text>";
+  }
+  if(st.sweep!==null){
+    const x=X(st.sweep), yb=y0+lanes*laneH;
+    o+="<line x1='"+x+"' x2='"+x+"' y1='"+(top+inRow+2)+"' y2='"+yb+"' stroke='#d6336c' stroke-width='2.5' stroke-dasharray='8 5'/>";
+    o+="<rect x='"+(x-30)+"' y='"+(top+inRow+4)+"' width='60' height='20' rx='10' fill='#d6336c'/>"+
+       "<text x='"+x+"' y='"+(top+inRow+18.5)+"' font-size='12.5' font-weight='700' fill='#fff' text-anchor='middle'>t = "+fmt(st.sweep)+"</text>";
+  }
+  o+="</svg>";
+  $("svg").outerHTML=o;
+}
+
+/* ---------- side panels ---------- */
+function panels(){
+  const m=model, st=m.steps[cur];
+  $("stepNo").textContent=cur; $("stepMax").textContent=m.steps.length-1;
+  $("sSlide").max=m.steps.length-1; $("sSlide").value=cur;
+  $("hRooms").textContent=st.roomFin.length;
+  $("hOverlap").textContent=st.overlap===null?"-":st.overlap;
+  $("cRooms").textContent=st.roomFin.length; $("cDepth").textContent=m.depth; $("cDone").textContent=st.placed.length;
+  $("narration").innerHTML=st.text;
+  $("heap").innerHTML=st.heap.length?st.heap.map((h,i)=>"<span class='chip"+(i===0&&st.kind==="examine"?" min":"")+"'><i style='background:"+colour(h.room)+"'></i>Room "+(h.room+1)+" : "+fmt(h.fin)+"</span>").join(""):"<span class='hint' style='margin:0'>empty</span>";
+  const doneIds=new Map(st.placed.map(p=>[p.id,p.room]));
+  $("queue").innerHTML=m.sorted.map(x=>{
+    const done=doneIds.has(x.id), isCur=(st.kind==="examine"||st.kind==="assign")&&st.cur&&st.cur.id===x.id;
+    return "<span class='chip"+(isCur?" cur":(done?" done":""))+"'><i"+(done?" style='background:"+colour(doneIds.get(x.id))+"'":"")+"></i>"+x.name+" ["+fmt(x.s)+","+fmt(x.e)+")</span>";
+  }).join("");
+  $("bBack").disabled=$("bReset").disabled=cur===0; $("bNext").disabled=cur===m.steps.length-1;
+  $("bPlay").textContent=timer?"Pause":(cur===m.steps.length-1?"Replay":"Play");
+}
+function show(i){cur=Math.max(0,Math.min(model.steps.length-1,i));draw();panels();}
+
+/* ---------- play/pause ---------- */
+const delay=()=>2300-Number($("sSpeed").value)*200;
+function updateSpeedLabel(){$("speedVal").textContent=(delay()/1000).toFixed(1)+" s per step";}
+function stop(){if(timer){clearInterval(timer);timer=null;}if(model)panels();}
+function play(){
+  if(timer){stop();return;}
+  if(cur===model.steps.length-1) show(0);
+  timer=setInterval(()=>{ if(cur>=model.steps.length-1){stop();return;} show(cur+1); },delay());
+  panels();
+}
+
+/* ---------- loading input ---------- */
+function load(text){
+  stop();
+  const r=parseInput(text);
+  $("err").textContent=r.error;
+  if(r.error) return false;
+  model=build(r.list); show(0); return true;
+}
+function randomText(n){
+  const rows=[]; for(let i=0;i<n;i++){const s=Math.floor(Math.random()*20), l=1+Math.floor(Math.random()*6); rows.push(s+" "+(s+l));}
+  return rows.join("\n");
+}
+
+$("bNext").onclick=()=>{stop();show(cur+1);};
+$("bBack").onclick=()=>{stop();show(cur-1);};
+$("bReset").onclick=()=>{stop();show(0);};
+$("bPlay").onclick=play;
+$("sSlide").oninput=e=>{stop();show(Number(e.target.value));};
+$("sSpeed").oninput=()=>{updateSpeedLabel(); if(timer){stop();play();}};
+$("bApply").onclick=()=>load($("txt").value);
+$("bExample").onclick=()=>{$("txt").value=EXAMPLE;load(EXAMPLE);};
+$("bRand").onclick=()=>{const n=Math.max(2,Math.min(30,Number($("nRand").value)||12));const t=randomText(n);$("txt").value=t;load(t);};
+document.addEventListener("keydown",e=>{
+  if(e.target.tagName==="TEXTAREA"||e.target.tagName==="INPUT") return;
+  if(e.key==="ArrowRight"){stop();show(cur+1);e.preventDefault();}
+  else if(e.key==="ArrowLeft"){stop();show(cur-1);e.preventDefault();}
+  else if(e.key===" "){play();e.preventDefault();}
+});
+
+$("txt").value=EXAMPLE; updateSpeedLabel(); load(EXAMPLE);
+window.__ipp={show:i=>{stop();show(i);},steps:()=>model.steps.length,load:t=>{$("txt").value=t;return load(t);}};
+})();
+</script>
+</body>
+</html>
